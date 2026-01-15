@@ -382,7 +382,7 @@
 <body>
 
 <div class="container" id="printableArea">
-  <div class="version-tag">Version: 3.2 (Smart Rate)</div>
+  <div class="version-tag">Version: 3.2 (Gazette Sep)</div>
   <h2>📅 Pay Calculator & Check</h2>
 
   <div class="upload-grid">
@@ -1029,37 +1029,6 @@ function parsePayslipDocument(items) {
     const rateMatch = fullText.match(/Hourly Rate\s+([0-9\.]+)/);
     if(rateMatch) result.hourlyRate = parseFloat(rateMatch[1]);
 
-    // ---------------------------------------------------------
-    // 3a. Smart Rate Detection (60-70 range)
-    // ---------------------------------------------------------
-    const rateCounts = {};
-    items.forEach(item => {
-        // Clean text: remove $ or commas
-        const raw = item.str.replace(/[$,]/g, '').trim();
-        if (/^\d+(\.\d+)?$/.test(raw)) { // strict number check
-            const val = parseFloat(raw);
-            if (val >= 60 && val <= 70) {
-                // To avoid floating point dups like 65.12000 vs 65.12, fix to 4 decimals
-                const k = val.toFixed(4);
-                rateCounts[k] = (rateCounts[k] || 0) + 1;
-            }
-        }
-    });
-    
-    let bestRate = 0; 
-    let maxCount = 0;
-    for (const [k, c] of Object.entries(rateCounts)) {
-        if (c > maxCount) { 
-            maxCount = c; 
-            bestRate = parseFloat(k); 
-        }
-    }
-    
-    // Override if found
-    if (bestRate > 0) {
-        result.hourlyRate = bestRate;
-    }
-
     // 4. Line Items
     for (let i = 0; i < items.length; i++) {
         const txt = items[i].str;
@@ -1076,7 +1045,8 @@ function parsePayslipDocument(items) {
                 txt.includes("Normal") || txt.includes("TI+") || txt.includes("PH") || 
                 txt.includes("Shift") || txt.includes("Meal") || txt.includes("OJT") ||
                 txt.includes("Leave") || txt.includes("Lve") || txt.includes("Cares") || 
-                txt.includes("Personal") || txt.includes("Sick") || txt.includes("Carer")
+                txt.includes("Personal") || txt.includes("Sick") || txt.includes("Carer") ||
+                txt.includes("Gazette")
             );
 
             if (isDesc) {
@@ -1633,7 +1603,7 @@ function renderVarianceReport(calcData) {
     addRow('Net Pay', calcData.net, ps.net);
     
     const psNormal = (ps.elements["Normal"] && ps.elements["Normal"].units) ? ps.elements["Normal"].units : 0;
-    const calcNormal = calcData.elements.base.hours + calcData.elements.ph_gazette.hours;
+    const calcNormal = calcData.elements.base.hours; // Removed ph_gazette from here
     if (psNormal > 0 || calcNormal > 0) addRow('Normal Hours', calcNormal, psNormal, false);
     
     let psSat = 0;
@@ -1659,6 +1629,15 @@ function renderVarianceReport(calcData) {
     }
     if (psCarer > 0 || (calcData.carerHours && calcData.carerHours > 0)) {
         addRow("Carer's/Personal Lve", calcData.carerHours || 0, psCarer, false);
+    }
+
+    // NEW PH Gazette Logic
+    let psGazette = 0;
+    for(let k in ps.elements) {
+        if (k.toLowerCase().includes("gazette")) psGazette += ps.elements[k].units;
+    }
+    if (psGazette > 0 || calcData.elements.ph_gazette.hours > 0) {
+        addRow('PH Gazette', calcData.elements.ph_gazette.hours, psGazette, false);
     }
 
     // NEW: PH Available Logic
