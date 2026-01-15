@@ -382,7 +382,7 @@
 <body>
 
 <div class="container" id="printableArea">
-  <div class="version-tag">Version: 3.2 (Gazette Sep)</div>
+  <div class="version-tag">Version: 3.3 (Rate Fix)</div>
   <h2>📅 Pay Calculator & Check</h2>
 
   <div class="upload-grid">
@@ -1026,8 +1026,19 @@ function parsePayslipDocument(items) {
         if(grossMatch) result.gross = parseFloat(grossMatch[1]);
     }
     
-    const rateMatch = fullText.match(/Hourly Rate\s+([0-9\.]+)/);
-    if(rateMatch) result.hourlyRate = parseFloat(rateMatch[1]);
+    // NEW: Robust Rate Detection 
+    // 1. Try explicit label
+    const ratePatterns = [
+        /Hourly Rate\s*[:$]?\s*(\d{2,}\.\d+)/i, 
+        /Rate\s*[:$]?\s*(\d{2,}\.\d+)/i
+    ];
+    for (let p of ratePatterns) {
+       const m = fullText.match(p);
+       if (m && parseFloat(m[1]) > 15 && parseFloat(m[1]) < 200) { 
+           result.hourlyRate = parseFloat(m[1]);
+           break;
+       }
+    }
 
     // 4. Line Items
     for (let i = 0; i < items.length; i++) {
@@ -1046,7 +1057,7 @@ function parsePayslipDocument(items) {
                 txt.includes("Shift") || txt.includes("Meal") || txt.includes("OJT") ||
                 txt.includes("Leave") || txt.includes("Lve") || txt.includes("Cares") || 
                 txt.includes("Personal") || txt.includes("Sick") || txt.includes("Carer") ||
-                txt.includes("Gazette")
+                txt.includes("Gazette") || txt.includes("Base Salary")
             );
 
             if (isDesc) {
@@ -1070,6 +1081,19 @@ function parsePayslipDocument(items) {
                     if (!result.elements[key]) result.elements[key] = { units: 0, value: 0 };
                     result.elements[key].units += units;
                     result.elements[key].value += value;
+                    
+                    // NEW: Fallback Rate Calculation from "Normal" row
+                    if (result.hourlyRate === 0 && (txt.includes("Normal") || txt.includes("Base"))) {
+                        if (rowVals.length >= 3) {
+                            // Likely [Units, Rate, Total]
+                            if (Math.abs((rowVals[0] * rowVals[1]) - rowVals[2]) < 0.5) {
+                                result.hourlyRate = rowVals[1];
+                            }
+                        } else if (rowVals.length === 2 && rowVals[0] > 0) {
+                            // Likely [Units, Total]
+                            result.hourlyRate = rowVals[1] / rowVals[0];
+                        }
+                    }
                 }
             }
         }
