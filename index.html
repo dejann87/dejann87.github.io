@@ -382,8 +382,8 @@
 <body>
 
 <div class="container" id="printableArea">
-  <div class="version-tag">Version: 3.3 (Rate Fix)</div>
-  <h2>📅 Pay Calculator & Payslip Checker</h2>
+  <div class="version-tag">Version: 3.4 (Col Rate Fix)</div>
+  <h2>📅 Pay Calculator & Check</h2>
 
   <div class="upload-grid">
     <div class="upload-box" id="box-roster">
@@ -1026,20 +1026,6 @@ function parsePayslipDocument(items) {
         if(grossMatch) result.gross = parseFloat(grossMatch[1]);
     }
     
-    // NEW: Robust Rate Detection 
-    // 1. Try explicit label
-    const ratePatterns = [
-        /Hourly Rate\s*[:$]?\s*(\d{2,}\.\d+)/i, 
-        /Rate\s*[:$]?\s*(\d{2,}\.\d+)/i
-    ];
-    for (let p of ratePatterns) {
-       const m = fullText.match(p);
-       if (m && parseFloat(m[1]) > 15 && parseFloat(m[1]) < 200) { 
-           result.hourlyRate = parseFloat(m[1]);
-           break;
-       }
-    }
-
     // 4. Line Items
     for (let i = 0; i < items.length; i++) {
         const txt = items[i].str;
@@ -1057,7 +1043,7 @@ function parsePayslipDocument(items) {
                 txt.includes("Shift") || txt.includes("Meal") || txt.includes("OJT") ||
                 txt.includes("Leave") || txt.includes("Lve") || txt.includes("Cares") || 
                 txt.includes("Personal") || txt.includes("Sick") || txt.includes("Carer") ||
-                txt.includes("Gazette") || txt.includes("Base Salary")
+                txt.includes("Gazette") || txt.includes("Base Salary") || txt.includes("Ordinary")
             );
 
             if (isDesc) {
@@ -1082,16 +1068,25 @@ function parsePayslipDocument(items) {
                     result.elements[key].units += units;
                     result.elements[key].value += value;
                     
-                    // NEW: Fallback Rate Calculation from "Normal" row
-                    if (result.hourlyRate === 0 && (txt.includes("Normal") || txt.includes("Base"))) {
+                    // NEW: Fallback Rate Calculation from "Normal" row to find the rate column
+                    // Usually: [Units, Rate, Total] -> 3 numbers
+                    // Or: [Units, Total] -> 2 numbers (calc required)
+                    if (txt.includes("Normal") || txt.includes("Base") || txt.includes("Ordinary")) {
+                        let potentialRate = 0;
                         if (rowVals.length >= 3) {
-                            // Likely [Units, Rate, Total]
-                            if (Math.abs((rowVals[0] * rowVals[1]) - rowVals[2]) < 0.5) {
-                                result.hourlyRate = rowVals[1];
+                            // If 3 nums, usually the middle one is Rate
+                            // Sanity check: Units * Rate ~= Total
+                            if (Math.abs((rowVals[0] * rowVals[1]) - rowVals[rowVals.length-1]) < 1.0) {
+                                potentialRate = rowVals[1];
                             }
                         } else if (rowVals.length === 2 && rowVals[0] > 0) {
-                            // Likely [Units, Total]
-                            result.hourlyRate = rowVals[1] / rowVals[0];
+                            // If 2 nums, assume [Units, Total]
+                            potentialRate = rowVals[1] / rowVals[0];
+                        }
+                        
+                        // Valid Rate check (e.g., between $15 and $300)
+                        if (potentialRate > 15 && potentialRate < 300) {
+                            result.hourlyRate = potentialRate;
                         }
                     }
                 }
