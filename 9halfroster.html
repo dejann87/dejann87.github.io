@@ -270,7 +270,7 @@
 <body>
 
 <div class="container" id="printableArea">
-  <div class="version-tag">Version: 6.3 (Logic Priority Fix)</div>
+  <div class="version-tag">Version: 6.4 (Consecutive Night Fix)</div>
   <h2>📅 Pay Calculator & Check</h2>
 
   <div class="upload-grid">
@@ -674,21 +674,18 @@ function populateShifts() {
               
               timeObjects.sort((a, b) => a - b);
               
-              // V6.1 FILTER: REMOVE TIMES MATCHING PREVIOUS DAY'S END
-              if (previousDayEnd !== null) {
-                  // Filter out times within 15 mins of previous end
-                  for (let i = timeObjects.length - 1; i >= 0; i--) {
-                      let diff = Math.abs(timeObjects[i] - previousDayEnd);
-                      if (diff <= 15) {
-                          timeObjects.splice(i, 1); // Nuke ghost
-                      }
-                  }
-              }
-
               // FIND SHIFT PAIR
               if (timeObjects.length >= 2) {
                   for (let i = 0; i < timeObjects.length; i++) {
                       let startT = timeObjects[i];
+                      
+                      // V6.4 FIX: Check START time against previous end (avoid ghost start)
+                      // Do NOT check end time against previous end
+                      if (previousDayEnd !== null) {
+                          let diff = Math.abs(startT - previousDayEnd);
+                          if (diff <= 15) continue; // Skip this Start Time (it's a bleed)
+                      }
+
                       let hasMatch = false;
                       for (let j = 0; j < timeObjects.length; j++) {
                           if (i === j) continue;
@@ -713,12 +710,22 @@ function populateShifts() {
               // FALLBACK (Single Time)
               if (!validStart && timeObjects.length > 0) {
                    let firstT = timeObjects[0];
-                   if (firstT >= 240 && firstT <= 900) {
-                       let h = Math.floor(firstT / 60);
-                       let m = firstT % 60;
-                       validStart = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
-                       // Estimate end for next day filtering
-                       currentDayEnd = (firstT + 570) % 1440; 
+                   
+                   // V6.4 FIX: Apply ghost check to fallback too
+                   let isGhost = false;
+                   if (previousDayEnd !== null) {
+                        if (Math.abs(firstT - previousDayEnd) <= 15) isGhost = true;
+                   }
+
+                   if (!isGhost) {
+                       // V6.4 FIX: Allow late starts (up to 23:30 = 1410)
+                       if (firstT >= 240 && firstT <= 1410) {
+                           let h = Math.floor(firstT / 60);
+                           let m = firstT % 60;
+                           validStart = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+                           // Estimate end for next day filtering
+                           currentDayEnd = (firstT + 570) % 1440; 
+                       }
                    }
               }
           }
