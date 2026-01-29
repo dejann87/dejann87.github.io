@@ -270,7 +270,7 @@
 <body>
 
 <div class="container" id="printableArea">
-  <div class="version-tag">Version: 18.1 (Code Structure Fix)</div>
+  <div class="version-tag">Version: 19.0 (Net Income + V13 Roster)</div>
   <h2>📅 Pay Calculator & Check</h2>
 
   <div class="upload-grid">
@@ -659,7 +659,11 @@ function findPersons() {
   });
   const select = document.getElementById('personSelect'); 
   select.innerHTML = '<option value="">-- Select Person --</option>';
-  detectedNames.sort((a,b) => { if (a.page !== b.page) return a.page - b.page; return b.y - a.y; });
+  // V10.0: Maintain page order
+  detectedNames.sort((a,b) => {
+      if (a.page !== b.page) return a.page - b.page;
+      return b.y - a.y; 
+  });
   detectedNames.forEach(obj => { const opt = document.createElement('option'); opt.value = obj.name; opt.innerText = obj.name; select.appendChild(opt); });
 }
 
@@ -869,6 +873,20 @@ function populateShifts() {
   }
 }
 
+function extractTimes(bucket) {
+    if(!bucket) return [];
+    let cellText = bucket.join(" ").toUpperCase().replace(/\b(\d{1,2})(\d{2})\b/g, "$1:$2");
+    const allTimes = cellText.match(/([0-2]?[0-9]|3[0-3])[:.][0-5][0-9]/g);
+    if (!allTimes) return [];
+    return allTimes.map(t => {
+        const parts = t.replace('.', ':').split(':');
+        let h = parseInt(parts[0], 10);
+        let m = parseInt(parts[1], 10);
+        if (m % 15 !== 0) { m = Math.round(m / 15) * 15; if (m === 60) { h += 1; m = 0; } }
+        return (h * 60) + m;
+    }).sort((a, b) => a - b);
+}
+
 // ==========================================
 //  PAYSLIP PARSER (Same as V7.0)
 // ==========================================
@@ -896,7 +914,10 @@ async function handlePayslipUpload() { /* (Keep existing logic or minify for bre
       const dateMatch = fullPdfText.match(/Pay Date\s+(\d{2}\/\d{2}\/\d{4})/);
       if (dateMatch) { const parts = dateMatch[1].split('/'); result.payDate = `${parts[2]}-${parts[1]}-${parts[0]}`; }
       const findValueAfter = (keyword) => { const regex = new RegExp(`${keyword}\\s*[:$]?\\s*([\\d,]+\\.\\d{2})`, 'i'); const m = fullPdfText.match(regex); if (m) return parseFloat(m[1].replace(/,/g, '')); return 0; };
-      result.gross = findValueAfter("Gross Pay") || findValueAfter("Total Earnings") || findValueAfter("Gross"); result.net = findValueAfter("Net Pay"); result.tax = findValueAfter("PAYG Tax") || findValueAfter("Tax"); result.ytdGross = findValueAfter("YTD Gross");
+      result.gross = findValueAfter("Gross Pay") || findValueAfter("Total Earnings") || findValueAfter("Gross"); 
+      result.net = findValueAfter("Net Pay") || findValueAfter("Net Income") || findValueAfter("Bank Deposit") || findValueAfter("Total Net"); 
+      result.tax = findValueAfter("PAYG Tax") || findValueAfter("Tax"); 
+      result.ytdGross = findValueAfter("YTD Gross");
       let captureMode = null; 
       for (let i = 0; i < allItems.length; i++) {
         const txt = allItems[i].str; const lowTxt = txt.toLowerCase();
