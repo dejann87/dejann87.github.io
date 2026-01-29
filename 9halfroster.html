@@ -270,7 +270,7 @@
 <body>
 
 <div class="container" id="printableArea">
-  <div class="version-tag">Version: 19.0 (Net Income + V13 Roster)</div>
+  <div class="version-tag">Version: 22.0 (Double Stitch + 20:15 Cutoff)</div>
   <h2>📅 Pay Calculator & Check</h2>
 
   <div class="upload-grid">
@@ -469,7 +469,7 @@ const vicPublicHolidays = {
 };
 
 // ==========================================
-//  HELPER FUNCTIONS (MOVED UP FOR SAFETY)
+//  HELPER FUNCTIONS (Safety)
 // ==========================================
 function renderVarianceReport(calcData) {
     const tbody = document.getElementById('variance-body'); 
@@ -566,7 +566,7 @@ function updateYTD() {
 }
 
 // ==========================================
-//  PDF PARSER (Roster) - V13.0 LOGIC (REVERTED)
+//  PDF PARSER (Roster) - V22.0 (Double Stitch + Wide Snap)
 // ==========================================
 function downloadPDF() {
     const element = document.getElementById('printableArea');
@@ -602,9 +602,19 @@ async function handlePdfUpload() {
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const textContent = await page.getTextContent();
-        textContent.items.forEach(item => { if (item.str.trim().length > 0) { globalPdfItems.push({ str: item.str, x: item.transform[4], y: item.transform[5], page: i }); fullTextString += item.str + " "; } });
+        textContent.items.forEach(item => { 
+            if (item.str.trim().length > 0) { 
+                globalPdfItems.push({ str: item.str, x: item.transform[4], y: item.transform[5], page: i }); 
+                fullTextString += item.str + " "; 
+            } 
+        });
       }
-      globalPdfItems.sort((a,b) => { if (a.page !== b.page) return a.page - b.page; if (Math.abs(a.y - b.y) > 5) return b.y - a.y; return a.x - b.x; });
+      globalPdfItems.sort((a,b) => { 
+          if (a.page !== b.page) return a.page - b.page; 
+          // Default PDF logic: Primary Sort Y (descending for top-down), Secondary Sort X (ascending)
+          if (Math.abs(a.y - b.y) > 5) return b.y - a.y; 
+          return a.x - b.x; 
+      });
       findPersons(); detectStartDate(fullTextString); 
     } catch (e) { console.error(e); statusSpan.innerText = "Error"; statusSpan.classList.add("status-error"); alert('Error parsing PDF.'); }
   };
@@ -659,17 +669,27 @@ function findPersons() {
   });
   const select = document.getElementById('personSelect'); 
   select.innerHTML = '<option value="">-- Select Person --</option>';
-  // V10.0: Maintain page order
+  // V20.0: SPATIAL SORT for Logic, ALPHA SORT for Dropdown
   detectedNames.sort((a,b) => {
       if (a.page !== b.page) return a.page - b.page;
-      return b.y - a.y; 
+      return b.y - a.y; // Spatially sort for logic
   });
-  detectedNames.forEach(obj => { const opt = document.createElement('option'); opt.value = obj.name; opt.innerText = obj.name; select.appendChild(opt); });
+  
+  // Create copy for dropdown
+  const alphaNames = [...detectedNames].sort((a,b) => a.name.localeCompare(b.name));
+  
+  alphaNames.forEach(obj => { 
+      const opt = document.createElement('option'); 
+      opt.value = obj.name; 
+      opt.innerText = obj.name; 
+      select.appendChild(opt); 
+  });
 }
 
 function populateShifts() {
   const selectedName = document.getElementById('personSelect').value; if (!selectedName) return;
   resetRoster(); 
+  // Find index in the SPATIAL array (detectedNames), NOT the dropdown order
   const personIndex = detectedNames.findIndex(p => p.name === selectedName); if (personIndex === -1) return;
   const currentPerson = detectedNames[personIndex];
   
@@ -677,63 +697,158 @@ function populateShifts() {
   let bottomY = 20; 
   if (personIndex + 1 < detectedNames.length) { 
       const nextPerson = detectedNames[personIndex + 1]; 
-      if (nextPerson.page === currentPerson.page) { bottomY = nextPerson.y + 5; }
+      if (nextPerson.page === currentPerson.page) {
+          bottomY = nextPerson.y + 5; 
+      }
   }
 
+  // --- V10.2 DYNAMIC HEADER GENERATION ---
   let headerKeys = [];
   const startVal = document.getElementById('startDate').value; 
   if (startVal) {
       const d = new Date(startVal);
       for (let i = 0; i < 14; i++) {
-          const day = new Date(d); day.setDate(d.getDate() + i);
-          const dd = String(day.getDate()).padStart(2, '0'); const mm = String(day.getMonth() + 1).padStart(2, '0');
+          const day = new Date(d);
+          day.setDate(d.getDate() + i);
+          const dd = String(day.getDate()).padStart(2, '0');
+          const mm = String(day.getMonth() + 1).padStart(2, '0');
           headerKeys.push(`${dd}/${mm}`);
       }
-  } else { headerKeys = ["25/01", "26/01", "27/01", "28/01", "29/01", "30/01", "31/01", "01/02", "02/02", "03/02", "04/02", "05/02", "06/02", "07/02"]; }
+  } else {
+     headerKeys = ["25/01", "26/01", "27/01", "28/01", "29/01", "30/01", "31/01", "01/02", "02/02", "03/02", "04/02", "05/02", "06/02", "07/02"];
+  }
 
   const headerCenters = [];
+
   globalPdfItems.forEach(i => {
       if (i.page === currentPerson.page && i.y > currentPerson.y) { 
+          // Detect Merged Headers & Typos
           let matchedIndices = [];
           for (let k=0; k<headerKeys.length; k++) {
               const keyPart = headerKeys[k].replace('/', '[/:.]');
               const re = new RegExp(keyPart);
-              if (re.test(i.str)) matchedIndices.push(k);
+              
+              if (re.test(i.str)) {
+                  matchedIndices.push(k);
+              }
           }
-          if (matchedIndices.length === 1) { const k = matchedIndices[0]; const width = i.str.length * 4; headerCenters[k] = i.x + (width / 2); } 
-          else if (matchedIndices.length > 1) {
-              const totalWidth = i.str.length * 4; const segmentWidth = totalWidth / matchedIndices.length;
-              for (let m=0; m<matchedIndices.length; m++) { const k = matchedIndices[m]; headerCenters[k] = i.x + (m * segmentWidth) + (segmentWidth / 2); }
+          
+          if (matchedIndices.length === 1) {
+              const k = matchedIndices[0];
+              const width = i.str.length * 4; 
+              headerCenters[k] = i.x + (width / 2); 
+          } else if (matchedIndices.length > 1) {
+              const totalWidth = i.str.length * 4; 
+              const segmentWidth = totalWidth / matchedIndices.length;
+              for (let m=0; m<matchedIndices.length; m++) {
+                  const k = matchedIndices[m];
+                  headerCenters[k] = i.x + (m * segmentWidth) + (segmentWidth / 2);
+              }
           }
       }
   });
 
-  let gaps = []; for(let i=0; i<13; i++) { if(headerCenters[i] && headerCenters[i+1]) { gaps.push(headerCenters[i+1] - headerCenters[i]); } }
-  gaps.sort((a,b) => a-b); let medianGap = gaps.length > 0 ? gaps[Math.floor(gaps.length/2)] : 46.5; 
-  for (let k=13; k>=0; k--) { if (headerCenters[k] && !headerCenters[k-1]) headerCenters[k-1] = headerCenters[k] - medianGap; }
-  for (let k=0; k<13; k++) { if (headerCenters[k] && !headerCenters[k+1]) headerCenters[k+1] = headerCenters[k] + medianGap; }
-  if(!headerCenters[0]) { for(let k=0; k<14; k++) headerCenters[k] = 110 + (k * 46.5) + 23; }
+  let gaps = [];
+  for(let i=0; i<13; i++) {
+      if(headerCenters[i] && headerCenters[i+1]) {
+          gaps.push(headerCenters[i+1] - headerCenters[i]);
+      }
+  }
+  gaps.sort((a,b) => a-b);
+  let medianGap = gaps.length > 0 ? gaps[Math.floor(gaps.length/2)] : 46.5; 
+
+  for (let k=13; k>=0; k--) {
+      if (headerCenters[k] && !headerCenters[k-1]) headerCenters[k-1] = headerCenters[k] - medianGap;
+  }
+  for (let k=0; k<13; k++) {
+      if (headerCenters[k] && !headerCenters[k+1]) headerCenters[k+1] = headerCenters[k] + medianGap;
+  }
+  
+  if(!headerCenters[0]) {
+       for(let k=0; k<14; k++) headerCenters[k] = 110 + (k * 46.5) + 23; 
+  }
 
   const rowItems = globalPdfItems.filter(item => {
       if (item.page !== currentPerson.page) return false;
-      if (item.y > topY) return false; if (item.y <= bottomY) return false;
+      if (item.y > topY) return false; 
+      if (item.y <= bottomY) return false;
       if (item.str.includes('HASTUS') || item.str.includes('ewcr01')) return false;
       return true;
   });
 
   const dayBuckets = Array.from({length: 14}, () => []);
+
   rowItems.forEach(item => {
-     const itemCenter = item.x + (item.str.length * 2); let bestDist = 9999; let bestIdx = -1;
+     const itemCenter = item.x + (item.str.length * 2);
+     let bestDist = 9999;
+     let bestIdx = -1;
+     
      for(let d=0; d<14; d++) {
          const dist = Math.abs(itemCenter - headerCenters[d]);
-         if (dist < bestDist) { bestDist = dist; bestIdx = d; }
+         if (dist < bestDist) {
+             bestDist = dist;
+             bestIdx = d;
+         }
      }
-     if (bestIdx !== -1 && bestDist < 35) {
+     
+     // V20.0: WIDENED SNAP RADIUS (35 -> 50) to catch Kaylan 23rd
+     if (bestIdx !== -1 && bestDist < 50) {
          let cleanStr = item.str.trim().replace(/\b(\d{1,2})(\d{2})\b/g, "$1:$2");
          dayBuckets[bestIdx].push(cleanStr);
      }
   });
+  
+  // --- V22.0 DOUBLE STITCH LOGIC ---
+  let dayFinalStarts = Array(14).fill(null);
+  
+  // 1. Forward Stitch (Night Shifts): Day D (PM) -> Day D+1 (AM)
+  for (let d = 0; d < 13; d++) {
+      const t1List = extractTimes(dayBuckets[d]);
+      const t2List = extractTimes(dayBuckets[d+1]);
+      
+      if(t1List.length > 0 && t2List.length > 0) {
+          for(let t1 of t1List) {
+              if(t1 > 900) { // > 15:00
+                  for(let t2 of t2List) {
+                      if(t2 < 780) { // < 13:00
+                          let diff = (t2 + 1440) - t1;
+                          if(diff > 480 && diff < 690) { // Valid night shift
+                               let h = Math.floor(t1 / 60); let m = t1 % 60;
+                               dayFinalStarts[d] = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+                               removeTimeFromBucket(dayBuckets[d+1], t2); // Consume End Time
+                               break;
+                          }
+                      }
+                  }
+              }
+              if(dayFinalStarts[d]) break;
+          }
+      }
+  }
 
+  // 2. Backward Stitch (Drifted Day Shift End): Day D (AM) -> Day D+1 (PM)
+  // This handles Dejan's 11:00 (Day 22) -> 20:30 (Day 23 bucket)
+  for (let d = 0; d < 13; d++) {
+      const t1List = extractTimes(dayBuckets[d]);
+      const t2List = extractTimes(dayBuckets[d+1]);
+      
+      if(t1List.length === 1 && t2List.length === 1) {
+          let startT = t1List[0];
+          let endT = t2List[0];
+          
+          if(startT < 840 && endT > 1080) { // Start < 14:00, End > 18:00
+               let diff = endT - startT; // Same day math
+               if(diff > 480 && diff < 690) {
+                   // It's a match! The 20:30 in Day D+1 is actually Day D's end.
+                   // Consume it so it doesn't look like a start.
+                   removeTimeFromBucket(dayBuckets[d+1], endT);
+                   // Day D is valid, Day D+1 is now empty (correctly).
+               }
+          }
+      }
+  }
+
+  // Analyze Buckets
   let dayIdx = 0;
   let previousDayEnd = null; 
 
@@ -749,8 +864,14 @@ function populateShifts() {
           const allTimes = cellText.match(/([0-2]?[0-9]|3[0-3])[:.][0-5][0-9]/g);
           let validStart = null;
           let currentDayEnd = null;
-
-          if (allTimes) {
+          
+          if(dayFinalStarts[dayIdx]) {
+               validStart = dayFinalStarts[dayIdx];
+               const parts = validStart.split(':');
+               const tVal = (parseInt(parts[0])*60) + parseInt(parts[1]);
+               currentDayEnd = (tVal + 570) % 1440;
+          }
+          else if (allTimes) {
               const timeObjects = allTimes.map(t => {
                   const cleanTime = t.replace('.', ':').replace(' ', ':');
                   const parts = cleanTime.split(':');
@@ -761,90 +882,47 @@ function populateShifts() {
               
               timeObjects.sort((a, b) => a - b);
               
-              // V13.0: MORNING BLEED FILTER & CONFLICT RESOLVER
-              // Remove very early times (< 6am) if followed by a normal day start (> 8am)
-              // UNLESS they form a valid night shift pair.
+              // Standard Pair Logic
               if (timeObjects.length >= 2) {
-                   // Check for morning bleed (e.g. 04:15, 11:00)
-                   if (timeObjects[0] < 360 && timeObjects[1] > 480) {
-                       let diff = timeObjects[1] - timeObjects[0];
-                       if (diff < 510 || diff > 630) {
-                           timeObjects.shift(); 
-                       }
-                   }
-                   
-                   // Check for PM Priority Conflict (Sharma)
-                   // If we still have >= 2 items, and one is PM (>3pm) and one is AM (<10am)
-                   if (timeObjects.length >= 2) {
-                       let hasPM = false; let hasAM = false;
-                       for(let t of timeObjects) {
-                           if(t > 900) hasPM = true;
-                           if(t < 600) hasAM = true;
-                       }
-                       // If conflict and NOT a pair
-                       if (hasPM && hasAM) {
-                           let isPair = false;
-                           for(let i=0; i<timeObjects.length-1; i++) {
-                               let d = timeObjects[i+1]-timeObjects[i];
-                               if(d<0) d+=1440;
-                               if(d>510 && d<630) isPair = true;
-                           }
-                           if(!isPair) {
-                               // Prioritize the PM time as start
-                               let pmTime = timeObjects.find(t => t > 900);
-                               if(pmTime) {
-                                   let h = Math.floor(pmTime / 60); let m = pmTime % 60;
-                                   validStart = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
-                                   currentDayEnd = (pmTime + 570) % 1440;
-                               }
-                           }
-                       }
-                   }
+                  for (let i = 0; i < timeObjects.length; i++) {
+                      let startT = timeObjects[i];
+                      if (previousDayEnd !== null && Math.abs(startT - previousDayEnd) <= 15) continue;
+                      for (let j = 0; j < timeObjects.length; j++) {
+                          if (i === j) continue;
+                          let endT = timeObjects[j];
+                          let diff = endT - startT;
+                          if (diff < 0) diff += 1440;
+                          if (diff > 510 && diff < 630) {
+                              let h = Math.floor(startT / 60); let m = startT % 60;
+                              validStart = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+                              currentDayEnd = endT; 
+                              break;
+                          }
+                      }
+                      if (validStart) break;
+                  }
+                  
+                  // V13.0 Morning Bleed Filter (If not a pair)
+                  if (!validStart && timeObjects[0] < 360 && timeObjects[1] > 480) {
+                      timeObjects.shift(); 
+                  }
               }
 
-              if (!validStart) {
-                  // V18.0 LONE PM END-TIME NUKE (Threshold REVERTED to 20:00 / 1200)
-                  if (timeObjects.length === 1) {
-                      let t = timeObjects[0];
-                      // If single time > 20:00 (1200) and NOT labeled... Nuke it.
-                      if (t >= 1200) {
-                          const isNightLabel = /\b(NTSHT|NIGHT)\b/.test(cellText);
-                          if (!isNightLabel) {
-                              validStart = null; 
-                          } else {
-                              let h = Math.floor(t / 60); let m = t % 60;
-                              validStart = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
-                          }
+              // V22.0 LONE PM END-TIME NUKE (Threshold: 20:15)
+              if (!validStart && timeObjects.length > 0) {
+                  let t = timeObjects[0];
+                  // If single time > 20:15 (1215) and NOT labeled... Nuke it.
+                  if (t >= 1215) {
+                      const isNightLabel = /\b(NTSHT|NIGHT)\b/.test(cellText);
+                      if (!isNightLabel) {
+                          validStart = null; 
                       } else {
-                           let h = Math.floor(t / 60); let m = t % 60;
-                           validStart = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+                          let h = Math.floor(t / 60); let m = t % 60;
+                          validStart = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
                       }
-                  } else if (timeObjects.length >= 2) {
-                      for (let i = 0; i < timeObjects.length; i++) {
-                          let startT = timeObjects[i];
-                          if (previousDayEnd !== null && Math.abs(startT - previousDayEnd) <= 15) continue;
-                          for (let j = 0; j < timeObjects.length; j++) {
-                              if (i === j) continue;
-                              let endT = timeObjects[j];
-                              let diff = endT - startT;
-                              if (diff < 0) diff += 1440;
-                              if (diff > 510 && diff < 630) {
-                                  let h = Math.floor(startT / 60); let m = startT % 60;
-                                  validStart = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
-                                  currentDayEnd = endT; 
-                                  break;
-                              }
-                          }
-                          if (validStart) break;
-                      }
-                      if (!validStart && timeObjects[0] >= 240 && timeObjects[0] <= 840) {
-                           let t = timeObjects[0];
-                           if (!previousDayEnd || Math.abs(t - previousDayEnd) > 15) {
-                               let h = Math.floor(t / 60); let m = t % 60;
-                               validStart = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
-                               currentDayEnd = (t + 570) % 1440; 
-                           }
-                      }
+                  } else {
+                       let h = Math.floor(t / 60); let m = t % 60;
+                       validStart = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
                   }
               }
           }
@@ -885,6 +963,18 @@ function extractTimes(bucket) {
         if (m % 15 !== 0) { m = Math.round(m / 15) * 15; if (m === 60) { h += 1; m = 0; } }
         return (h * 60) + m;
     }).sort((a, b) => a - b);
+}
+
+function removeTimeFromBucket(bucket, timeVal) {
+    for (let i = bucket.length - 1; i >= 0; i--) {
+        let s = bucket[i].replace(/\b(\d{1,2})(\d{2})\b/g, "$1:$2");
+        let h = parseInt(s.split(':')[0]); let m = parseInt(s.split(':')[1]);
+        let val = (h*60)+m;
+        if (Math.abs(val - timeVal) < 5) {
+            bucket.splice(i, 1);
+            return;
+        }
+    }
 }
 
 // ==========================================
