@@ -270,7 +270,7 @@
 <body>
 
 <div class="container" id="printableArea">
-  <div class="version-tag">Version: 15.0 (8 PM Threshold)</div>
+  <div class="version-tag">Version: 18.1 (Code Structure Fix)</div>
   <h2>📅 Pay Calculator & Check</h2>
 
   <div class="upload-grid">
@@ -469,7 +469,104 @@ const vicPublicHolidays = {
 };
 
 // ==========================================
-//  PDF PARSER (Roster) - V15.0: THE 8PM CUTOFF
+//  HELPER FUNCTIONS (MOVED UP FOR SAFETY)
+// ==========================================
+function renderVarianceReport(calcData) {
+    const tbody = document.getElementById('variance-body'); 
+    tbody.innerHTML = ''; 
+    const ps = importedPayslipData;
+    
+    const addRow = (label, calcVal, psVal, isCurr=true) => { 
+        const diff = calcVal - psVal; 
+        const isMatch = Math.abs(diff) < 0.05; 
+        const prefix = isCurr ? '$' : ''; 
+        const displayCalc = prefix + calcVal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); 
+        const displayPs = prefix + psVal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); 
+        const displayDiff = prefix + diff.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); 
+        const row = `<tr><td>${label}</td><td>${displayCalc}</td><td>${displayPs}</td><td class="${isMatch ? 'var-match' : 'var-diff'}">${isMatch ? '✓ Match' : displayDiff}</td></tr>`; 
+        tbody.innerHTML += row; 
+    };
+    
+    addRow('Gross Pay', calcData.gross, ps.gross); 
+    addRow('PAYG Tax', calcData.tax, ps.tax); 
+    addRow('Net Pay', calcData.net, ps.net);
+    
+    const psNormal = (ps.elements["Normal"] && ps.elements["Normal"].units) ? ps.elements["Normal"].units : 0; 
+    const calcNormal = calcData.elements.base.hours; 
+    if (psNormal > 0 || calcNormal > 0) addRow('Normal Hours', calcNormal, psNormal, false);
+    
+    let psSat = 0; for(let k in ps.elements) if (k.includes("TI+50%")) psSat += ps.elements[k].units; 
+    if (psSat > 0 || calcData.elements.sat.hours > 0) addRow('Saturday Hours', calcData.elements.sat.hours, psSat, false);
+    
+    let psSun = 0; for(let k in ps.elements) if (k.includes("TI+100%")) psSun += ps.elements[k].units; 
+    if (psSun > 0 || calcData.elements.sun.hours > 0) addRow('Sunday Hours', calcData.elements.sun.hours, psSun, false);
+    
+    let psOjt = 0; for(let k in ps.elements) if (k.includes("OJT")) psOjt += ps.elements[k].units; 
+    if (psOjt > 0 || calcData.ojt > 0) addRow('OJT Count', calcData.ojt, psOjt, false);
+    
+    let psCarer = 0; for(let k in ps.elements) { const lowerK = k.toLowerCase(); if (lowerK.includes("carer") || lowerK.includes("personal") || lowerK.includes("sick") || lowerK.includes("cares lve")) { psCarer += ps.elements[k].units; } } 
+    if (psCarer > 0 || (calcData.carerHours && calcData.carerHours > 0)) { addRow("Carer's/Personal Lve", calcData.carerHours || 0, psCarer, false); }
+    
+    let psGazette = 0; for(let k in ps.elements) { if (k.toLowerCase().includes("gazette")) psGazette += ps.elements[k].units; } 
+    if (psGazette > 0 || calcData.elements.ph_gazette.hours > 0) { addRow('PH Gazette', calcData.elements.ph_gazette.hours, psGazette, false); }
+    
+    let psPhAvail = 0; for(let k in ps.elements) { if (k.toLowerCase().includes("ph available")) { psPhAvail += ps.elements[k].units; } } 
+    if (psPhAvail > 0 || calcData.elements.ph_available.hours > 0) { addRow('PH Available', calcData.elements.ph_available.hours, psPhAvail, false); }
+    
+    document.getElementById('variance-report').style.display = 'block';
+}
+
+function bangHoliday(element) { 
+    if (!element.checked) return; 
+    const emojis = ['🍸', '🕶️', '🏝️']; 
+    const rect = element.getBoundingClientRect(); 
+    const centerX = rect.left + rect.width / 2 + window.scrollX; 
+    const centerY = rect.top + rect.height / 2 + window.scrollY; 
+    for (let i = 0; i < 15; i++) { 
+        const el = document.createElement('div'); 
+        el.classList.add('emoji-particle'); 
+        el.innerText = emojis[Math.floor(Math.random() * emojis.length)]; 
+        document.body.appendChild(el); 
+        el.style.left = centerX + 'px'; 
+        el.style.top = centerY + 'px'; 
+        const tx = (Math.random() - 0.5) * 200; 
+        const ty = -80 - (Math.random() - 0.5) * 150; 
+        const rot = (Math.random() - 0.5) * 360; 
+        el.style.setProperty('--tx', `${tx}px`); 
+        el.style.setProperty('--ty', `${ty}px`); 
+        el.style.setProperty('--rot', `${rot}deg`); 
+        setTimeout(() => el.remove(), 1000); 
+    } 
+}
+
+function updateYTD() {
+    const ytdVal = parseFloat(document.getElementById('ytdInput').value) || 0;
+    const dateVal = document.getElementById('ytdDate').value;
+    let payslipDate = new Date();
+    if (dateVal) { payslipDate = new Date(dateVal); }
+    const currentYear = payslipDate.getFullYear();
+    const currentMonth = payslipDate.getMonth(); 
+    let fyStartYear = currentYear;
+    if (currentMonth < 6) { fyStartYear = currentYear - 1; }
+    const fyStartDate = new Date(fyStartYear, 6, 1); 
+    const fyEndDate = new Date(fyStartYear + 1, 5, 30); 
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const diffTimePast = payslipDate - fyStartDate;
+    const diffDaysPast = Math.max(0, Math.ceil(diffTimePast / msPerDay));
+    const fortnightsPast = Math.max(1, diffDaysPast / 14); 
+    const diffTimeFuture = fyEndDate - payslipDate;
+    const diffDaysFuture = Math.max(0, Math.ceil(diffTimeFuture / msPerDay));
+    const fortnightsRemaining = diffDaysFuture / 14; 
+    let avgPay = 0;
+    if(fortnightsPast > 0) { avgPay = ytdVal / fortnightsPast; }
+    const projectedTotal = ytdVal + (avgPay * fortnightsRemaining);
+    document.getElementById('ytd-avg-pay').innerText = '$' + avgPay.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    document.getElementById('ytd-pays-left').innerText = fortnightsRemaining.toFixed(1);
+    document.getElementById('ytd-projected-total').innerText = '$' + projectedTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+
+// ==========================================
+//  PDF PARSER (Roster) - V13.0 LOGIC (REVERTED)
 // ==========================================
 function downloadPDF() {
     const element = document.getElementById('printableArea');
@@ -633,32 +730,6 @@ function populateShifts() {
      }
   });
 
-  // V14.0: STITCHER LOGIC
-  let dayFinalStarts = Array(14).fill(null);
-  for (let d = 0; d < 13; d++) {
-      const times1 = extractTimes(dayBuckets[d]);
-      const times2 = extractTimes(dayBuckets[d+1]);
-      let stitched = false;
-      if (times1.length > 0 && times2.length > 0) {
-          for (let t1 of times1) {
-              if (t1 > 900) { 
-                  for (let t2 of times2) {
-                      if (t2 < 780) { 
-                          let diff = (t2 + 1440) - t1;
-                          if (diff > 510 && diff < 630) {
-                              let h = Math.floor(t1 / 60); let m = t1 % 60;
-                              dayFinalStarts[d] = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
-                              removeTimeFromBucket(dayBuckets[d+1], t2);
-                              stitched = true; break;
-                          }
-                      }
-                  }
-              }
-              if(stitched) break;
-          }
-      }
-  }
-
   let dayIdx = 0;
   let previousDayEnd = null; 
 
@@ -675,12 +746,7 @@ function populateShifts() {
           let validStart = null;
           let currentDayEnd = null;
 
-          if (dayFinalStarts[dayIdx]) {
-              validStart = dayFinalStarts[dayIdx];
-              const parts = validStart.split(':');
-              const tVal = (parseInt(parts[0])*60) + parseInt(parts[1]);
-              currentDayEnd = (tVal + 570) % 1440;
-          } else if (allTimes) {
+          if (allTimes) {
               const timeObjects = allTimes.map(t => {
                   const cleanTime = t.replace('.', ':').replace(' ', ':');
                   const parts = cleanTime.split(':');
@@ -691,51 +757,91 @@ function populateShifts() {
               
               timeObjects.sort((a, b) => a - b);
               
+              // V13.0: MORNING BLEED FILTER & CONFLICT RESOLVER
+              // Remove very early times (< 6am) if followed by a normal day start (> 8am)
+              // UNLESS they form a valid night shift pair.
               if (timeObjects.length >= 2) {
-                  for (let i = 0; i < timeObjects.length; i++) {
-                      let startT = timeObjects[i];
-                      if (previousDayEnd !== null && Math.abs(startT - previousDayEnd) <= 15) continue;
-                      for (let j = 0; j < timeObjects.length; j++) {
-                          if (i === j) continue;
-                          let endT = timeObjects[j];
-                          let diff = endT - startT;
-                          if (diff < 0) diff += 1440;
-                          if (diff > 510 && diff < 630) {
-                              let h = Math.floor(startT / 60); let m = startT % 60;
-                              validStart = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
-                              currentDayEnd = endT; 
-                              break;
-                          }
-                      }
-                      if (validStart) break;
-                  }
-              }
-              
-              if (!validStart && timeObjects.length > 0) {
-                   for(let t of timeObjects) {
-                       let isGhost = false;
-                       if (previousDayEnd !== null && Math.abs(t - previousDayEnd) <= 15) isGhost = true;
-                       
-                       if (!isGhost) {
-                           // Explicit Night Shift = Always Valid Start
-                           if (/\b(NTSHT|NIGHT|Training)\b/i.test(cellText)) {
-                               let h = Math.floor(t / 60); let m = t % 60;
-                               validStart = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
-                               currentDayEnd = (t + 570) % 1440;
-                               break;
-                           }
-                           // V15.0: The 8PM Cutoff Rule
-                           // If PM > 20:00 (1200), assume END (Dejan case) -> Ignore
-                           // Unless it's the only time and we have no other options? No, strict.
-                           if (t > 1200) continue; 
-                           
-                           // Otherwise (Morning < 1200 or Early PM < 20:00), assume START
-                           let h = Math.floor(t / 60); let m = t % 60;
-                           validStart = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
-                           currentDayEnd = (t + 570) % 1440;
-                           break;
+                   // Check for morning bleed (e.g. 04:15, 11:00)
+                   if (timeObjects[0] < 360 && timeObjects[1] > 480) {
+                       let diff = timeObjects[1] - timeObjects[0];
+                       if (diff < 510 || diff > 630) {
+                           timeObjects.shift(); 
                        }
                    }
+                   
+                   // Check for PM Priority Conflict (Sharma)
+                   // If we still have >= 2 items, and one is PM (>3pm) and one is AM (<10am)
+                   if (timeObjects.length >= 2) {
+                       let hasPM = false; let hasAM = false;
+                       for(let t of timeObjects) {
+                           if(t > 900) hasPM = true;
+                           if(t < 600) hasAM = true;
+                       }
+                       // If conflict and NOT a pair
+                       if (hasPM && hasAM) {
+                           let isPair = false;
+                           for(let i=0; i<timeObjects.length-1; i++) {
+                               let d = timeObjects[i+1]-timeObjects[i];
+                               if(d<0) d+=1440;
+                               if(d>510 && d<630) isPair = true;
+                           }
+                           if(!isPair) {
+                               // Prioritize the PM time as start
+                               let pmTime = timeObjects.find(t => t > 900);
+                               if(pmTime) {
+                                   let h = Math.floor(pmTime / 60); let m = pmTime % 60;
+                                   validStart = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+                                   currentDayEnd = (pmTime + 570) % 1440;
+                               }
+                           }
+                       }
+                   }
+              }
+
+              if (!validStart) {
+                  // V18.0 LONE PM END-TIME NUKE (Threshold REVERTED to 20:00 / 1200)
+                  if (timeObjects.length === 1) {
+                      let t = timeObjects[0];
+                      // If single time > 20:00 (1200) and NOT labeled... Nuke it.
+                      if (t >= 1200) {
+                          const isNightLabel = /\b(NTSHT|NIGHT)\b/.test(cellText);
+                          if (!isNightLabel) {
+                              validStart = null; 
+                          } else {
+                              let h = Math.floor(t / 60); let m = t % 60;
+                              validStart = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+                          }
+                      } else {
+                           let h = Math.floor(t / 60); let m = t % 60;
+                           validStart = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+                      }
+                  } else if (timeObjects.length >= 2) {
+                      for (let i = 0; i < timeObjects.length; i++) {
+                          let startT = timeObjects[i];
+                          if (previousDayEnd !== null && Math.abs(startT - previousDayEnd) <= 15) continue;
+                          for (let j = 0; j < timeObjects.length; j++) {
+                              if (i === j) continue;
+                              let endT = timeObjects[j];
+                              let diff = endT - startT;
+                              if (diff < 0) diff += 1440;
+                              if (diff > 510 && diff < 630) {
+                                  let h = Math.floor(startT / 60); let m = startT % 60;
+                                  validStart = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+                                  currentDayEnd = endT; 
+                                  break;
+                              }
+                          }
+                          if (validStart) break;
+                      }
+                      if (!validStart && timeObjects[0] >= 240 && timeObjects[0] <= 840) {
+                           let t = timeObjects[0];
+                           if (!previousDayEnd || Math.abs(t - previousDayEnd) > 15) {
+                               let h = Math.floor(t / 60); let m = t % 60;
+                               validStart = String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+                               currentDayEnd = (t + 570) % 1440; 
+                           }
+                      }
+                  }
               }
           }
 
@@ -761,32 +867,6 @@ function populateShifts() {
           dayIdx++;
       }
   }
-}
-
-function extractTimes(bucket) {
-    if(!bucket) return [];
-    let cellText = bucket.join(" ").toUpperCase().replace(/\b(\d{1,2})(\d{2})\b/g, "$1:$2");
-    const allTimes = cellText.match(/([0-2]?[0-9]|3[0-3])[:.][0-5][0-9]/g);
-    if (!allTimes) return [];
-    return allTimes.map(t => {
-        const parts = t.replace('.', ':').split(':');
-        let h = parseInt(parts[0], 10);
-        let m = parseInt(parts[1], 10);
-        if (m % 15 !== 0) { m = Math.round(m / 15) * 15; if (m === 60) { h += 1; m = 0; } }
-        return (h * 60) + m;
-    }).sort((a, b) => a - b);
-}
-
-function removeTimeFromBucket(bucket, timeVal) {
-    for (let i = bucket.length - 1; i >= 0; i--) {
-        let s = bucket[i].replace(/\b(\d{1,2})(\d{2})\b/g, "$1:$2");
-        let h = parseInt(s.split(':')[0]); let m = parseInt(s.split(':')[1]);
-        let val = (h*60)+m;
-        if (Math.abs(val - timeVal) < 5) {
-            bucket.splice(i, 1);
-            return;
-        }
-    }
 }
 
 // ==========================================
@@ -835,13 +915,13 @@ async function handlePayslipUpload() { /* (Keep existing logic or minify for bre
         }
       }
       importedPayslipData = result; statusSpan.innerText = `✓ Loaded ($${result.gross.toFixed(2)})`; statusSpan.classList.add("status-success");
-      if (result.ytdGross > 0) document.getElementById('ytdInput').value = result.ytdGross.toFixed(2); if (result.payDate) document.getElementById('ytdDate').value = result.payDate; updateYTD(); if (result.hourlyRate > 0) document.getElementById('rate').value = result.hourlyRate.toFixed(4);
+      if (result.ytdGross > 0) document.getElementById('ytdInput').value = result.ytdGross.toFixed(2); if (result.payDate) document.getElementById('ytdDate').value = result.payDate; if(typeof updateYTD === "function") updateYTD(); if (result.hourlyRate > 0) document.getElementById('rate').value = result.hourlyRate.toFixed(4);
       if (detectedNames.length > 0) {
         let matchedName = null; const cleanPdfText = fullPdfText.toLowerCase().replace(/,/g, ' ').replace(/\s+/g, ' ');
         for (let person of detectedNames) { const parts = person.name.trim().split(/\s+/); if (cleanPdfText.includes(person.name.toLowerCase())) { matchedName = person.name; break; } if (parts.length >= 2 && cleanPdfText.includes(`${parts[parts.length-1].toLowerCase()} ${parts[0].toLowerCase()}`)) { matchedName = person.name; break; } }
         if (matchedName) { const sel = document.getElementById('personSelect'); if (sel) { sel.value = matchedName; populateShifts(); statusSpan.innerText += ` • Matched: ${matchedName}`; } }
       }
-    } catch (e) { console.error(e); statusSpan.innerText = "Error"; statusSpan.classList.add("status-error"); alert("Error parsing Payslip PDF."); }
+    } catch (e) { console.error(e); statusSpan.innerText = "Error"; statusSpan.classList.add("status-error"); alert("Error parsing Payslip PDF: " + e.message); }
   };
   reader.readAsArrayBuffer(file);
 }
@@ -1036,18 +1116,30 @@ function calculatePay() {
       if (importedPayslipData) { renderVarianceReport({ gross: totalGross, net: netFortnight, tax: paygFortnight, elements: buckets, ojt: ojtCount, carerHours: carerHours }); }
   } catch(e) { console.error(e); alert("Calculation Error: " + e.message); }
 }
-function renderVarianceReport(calcData) {
-    const tbody = document.getElementById('variance-body'); tbody.innerHTML = ''; const ps = importedPayslipData;
-    const addRow = (label, calcVal, psVal, isCurr=true) => { const diff = calcVal - psVal; const isMatch = Math.abs(diff) < 0.05; const prefix = isCurr ? '$' : ''; const displayCalc = prefix + calcVal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); const displayPs = prefix + psVal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); const displayDiff = prefix + diff.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}); const row = `<tr><td>${label}</td><td>${displayCalc}</td><td>${displayPs}</td><td class="${isMatch ? 'var-match' : 'var-diff'}">${isMatch ? '✓ Match' : displayDiff}</td></tr>`; tbody.innerHTML += row; };
-    addRow('Gross Pay', calcData.gross, ps.gross); addRow('PAYG Tax', calcData.tax, ps.tax); addRow('Net Pay', calcData.net, ps.net);
-    const psNormal = (ps.elements["Normal"] && ps.elements["Normal"].units) ? ps.elements["Normal"].units : 0; const calcNormal = calcData.elements.base.hours; if (psNormal > 0 || calcNormal > 0) addRow('Normal Hours', calcNormal, psNormal, false);
-    let psSat = 0; for(let k in ps.elements) if (k.includes("TI+50%")) psSat += ps.elements[k].units; if (psSat > 0 || calcData.elements.sat.hours > 0) addRow('Saturday Hours', calcData.elements.sat.hours, psSat, false);
-    let psSun = 0; for(let k in ps.elements) if (k.includes("TI+100%")) psSun += ps.elements[k].units; if (psSun > 0 || calcData.elements.sun.hours > 0) addRow('Sunday Hours', calcData.elements.sun.hours, psSun, false);
-    let psOjt = 0; for(let k in ps.elements) if (k.includes("OJT")) psOjt += ps.elements[k].units; if (psOjt > 0 || calcData.ojt > 0) addRow('OJT Count', calcData.ojt, psOjt, false);
-    let psCarer = 0; for(let k in ps.elements) { const lowerK = k.toLowerCase(); if (lowerK.includes("carer") || lowerK.includes("personal") || lowerK.includes("sick") || lowerK.includes("cares lve")) { psCarer += ps.elements[k].units; } } if (psCarer > 0 || (calcData.carerHours && calcData.carerHours > 0)) { addRow("Carer's/Personal Lve", calcData.carerHours || 0, psCarer, false); }
-    let psGazette = 0; for(let k in ps.elements) { if (k.toLowerCase().includes("gazette")) psGazette += ps.elements[k].units; } if (psGazette > 0 || calcData.elements.ph_gazette.hours > 0) { addRow('PH Gazette', calcData.elements.ph_gazette.hours, psGazette, false); }
-    let psPhAvail = 0; for(let k in ps.elements) { if (k.toLowerCase().includes("ph available")) { psPhAvail += ps.elements[k].units; } } if (psPhAvail > 0 || calcData.elements.ph_available.hours > 0) { addRow('PH Available', calcData.elements.ph_available.hours, psPhAvail, false); }
-    document.getElementById('variance-report').style.display = 'block';
+function updateYTD() {
+    const ytdVal = parseFloat(document.getElementById('ytdInput').value) || 0;
+    const dateVal = document.getElementById('ytdDate').value;
+    let payslipDate = new Date();
+    if (dateVal) { payslipDate = new Date(dateVal); }
+    const currentYear = payslipDate.getFullYear();
+    const currentMonth = payslipDate.getMonth(); 
+    let fyStartYear = currentYear;
+    if (currentMonth < 6) { fyStartYear = currentYear - 1; }
+    const fyStartDate = new Date(fyStartYear, 6, 1); 
+    const fyEndDate = new Date(fyStartYear + 1, 5, 30); 
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const diffTimePast = payslipDate - fyStartDate;
+    const diffDaysPast = Math.max(0, Math.ceil(diffTimePast / msPerDay));
+    const fortnightsPast = Math.max(1, diffDaysPast / 14); 
+    const diffTimeFuture = fyEndDate - payslipDate;
+    const diffDaysFuture = Math.max(0, Math.ceil(diffTimeFuture / msPerDay));
+    const fortnightsRemaining = diffDaysFuture / 14; 
+    let avgPay = 0;
+    if(fortnightsPast > 0) { avgPay = ytdVal / fortnightsPast; }
+    const projectedTotal = ytdVal + (avgPay * fortnightsRemaining);
+    document.getElementById('ytd-avg-pay').innerText = '$' + avgPay.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    document.getElementById('ytd-pays-left').innerText = fortnightsRemaining.toFixed(1);
+    document.getElementById('ytd-projected-total').innerText = '$' + projectedTotal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
 }
 function bangHoliday(element) { if (!element.checked) return; const emojis = ['🍸', '🕶️', '🏝️']; const rect = element.getBoundingClientRect(); const centerX = rect.left + rect.width / 2 + window.scrollX; const centerY = rect.top + rect.height / 2 + window.scrollY; for (let i = 0; i < 15; i++) { const el = document.createElement('div'); el.classList.add('emoji-particle'); el.innerText = emojis[Math.floor(Math.random() * emojis.length)]; document.body.appendChild(el); el.style.left = centerX + 'px'; el.style.top = centerY + 'px'; const tx = (Math.random() - 0.5) * 200; const ty = -80 - (Math.random() - 0.5) * 150; const rot = (Math.random() - 0.5) * 360; el.style.setProperty('--tx', `${tx}px`); el.style.setProperty('--ty', `${ty}px`); el.style.setProperty('--rot', `${rot}deg`); setTimeout(() => el.remove(), 1000); } }
 </script>
