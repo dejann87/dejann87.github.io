@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>12h Pay Master (Manual OT Logic)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+<script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+</script>
+
+<style>
+  :root { --primary: #008060; --bg: #f0f2f5; --accent: #6610f2; --weekend-red: #a52a2a; }
+  body { font-family: -apple-system, sans-serif; background-color: var(--bg); padding: 20px; display: flex; justify-content: center; }
+  .container { background: white; width: 1100px; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+  
+  .upload-area { margin-bottom: 25px; padding: 45px; border: 3px dashed var(--primary); border-radius: 12px; background: #f6fff9; text-align: center; cursor: pointer; }
+  .upload-area:hover { background: #eaffe8; }
+  
+  .pattern-info { background: #eef2f7; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 13px; color: #2c3e50; border-left: 5px solid var(--primary); }
+
+  .controls { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 20px; background: #fff; padding: 15px; border-radius: 8px; border: 1px solid #dee2e6; }
+  .control-group label { display: block; font-size: 11px; font-weight: bold; color: #666; margin-bottom: 5px; text-transform: uppercase; }
+  .control-group input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+
+  .week-header { background-color: #e9ecef; padding: 8px 15px; font-weight: bold; font-size: 14px; border-radius: 4px; margin-top: 20px; color: #495057; }
+  table.roster-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+  th { text-align: left; font-size: 11px; color: #888; border-bottom: 2px solid #eee; padding: 8px 5px; text-transform: uppercase; }
+  td { padding: 8px 5px; border-bottom: 1px solid #f8f9fa; vertical-align: middle; }
+  
+  .day-label { font-size: 13px; font-weight: 600; display: flex; flex-direction: column; width: 150px; }
+  .ph-display { font-size: 10px; color: #d63384; font-weight: bold; text-transform: uppercase; margin-top: 2px; }
+  .weekend-row .day-label { color: var(--weekend-red); }
+
+  .time-input { padding: 8px; border: 1px solid #ddd; border-radius: 4px; width: 85px; text-align: center; font-family: monospace; }
+  .meal-indicator { background: var(--accent); color: white; padding: 2px 5px; border-radius: 3px; font-size: 9px; margin-left: 5px; font-weight: bold; }
+  .tag-leave { background: #dc3545; color: white; padding: 2px 5px; border-radius: 3px; font-size: 9px; margin-left: 5px; font-weight: bold; }
+
+  .results-box { margin-top: 30px; display: none; }
+  .payslip-style { border: 2px solid #333; padding: 25px; background: #fff; box-shadow: 5px 5px 0px #ccc; }
+  .ps-header { border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 15px; display: flex; justify-content: space-between; font-weight: bold; font-size: 16px; }
+  .ps-table { width: 100%; font-size: 13px; margin-top: 10px; border-collapse: collapse; }
+  .ps-table th { color: #555; border-bottom: 1px solid #000; padding: 5px 0; text-align: left; }
+  .ps-table td { padding: 8px 0; border-bottom: 1px dashed #ddd; }
+  .ps-total-row { border-top: 2px solid #333; margin-top: 15px; padding-top: 10px; font-weight: bold; font-size: 18px; color: #28a745; display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+
+<div class="container" id="printableArea">
+  <h2>📅 12h Pay Master (Integrated Final)</h2>
+
+  <div class="upload-area" id="dropZone" onclick="document.getElementById('payslipInput').click()">
+    <div style="font-size: 45px; margin-bottom: 10px;">📄</div>
+    <strong>DRAG & DROP PAYSLIP HERE</strong><br>
+    <small style="color: #666;">Auto-fill Hourly Rate from your PDF</small>
+    <input type="file" id="payslipInput" accept=".pdf" style="display:none" onchange="handlePayslipUpload()">
+    <div id="payslipStatus" style="margin-top:10px; font-weight:bold; color: var(--primary);"></div>
+  </div>
+
+  <div class="pattern-info">
+    <strong>✨ Magic Pattern:</strong> Enter your first shift time (e.g. 06:00) to auto-populate the "4 ON / 4 OFF" pattern. 
+    Type <strong>SICK</strong> or <strong>CARER</strong> for localized leave entry.
+    <button onclick="clearRoster()" style="float:right; background:#6c757d; color:white; border:none; padding:2px 10px; border-radius:4px; cursor:pointer;">Reset</button>
+  </div>
+
+  <div class="controls">
+    <div class="control-group"><label>Fortnight Start (Sun)</label><input type="date" id="startDate" onchange="updateDates()"></div>
+    <div class="control-group"><label>Hourly Rate ($)</label><input type="number" id="rate" step="0.0001"></div>
+    <div class="control-group"><label>Meal Allowance ($)</label><input type="number" id="mealRate" value="14.94" step="0.01"></div>
+    
+    <div class="control-group"><label>Novated Lease (Pre-Tax)</label><input type="number" id="lease" placeholder="0.00"></div>
+    <div class="control-group"><label>Super Sal Sac (Pre-Tax)</label><input type="number" id="superSac" placeholder="0.00"></div>
+    <div class="control-group"><label>Extra Super Contrib (Pre-Tax)</label><input type="number" id="extraSuper" placeholder="0.00"></div>
+    
+    <div class="control-group" style="grid-column: span 3;">
+      <label>Tax Settings</label>
+      <div style="font-size:11px; display: flex; gap: 20px;">
+        <span><input type="checkbox" id="taxFree" checked> Tax Free Threshold</span>
+        <span><input type="checkbox" id="hecs"> HECS/HELP Debt</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="week-header">WEEK 1</div>
+  <table class="roster-table">
+    <thead><tr><th style="width: 200px;">Date & Holiday</th><th>Start Time</th><th style="text-align: center;">Manual OT?</th><th style="text-align:right;">Shift Hrs</th></tr></thead>
+    <tbody id="week1Body"></tbody>
+  </table>
+
+  <div class="week-header">WEEK 2</div>
+  <table class="roster-table">
+    <thead><tr><th style="width: 200px;">Date & Holiday</th><th>Start Time</th><th style="text-align: center;">Manual OT?</th><th style="text-align:right;">Shift Hrs</th></tr></thead>
+    <tbody id="week2Body"></tbody>
+  </table>
+
+  <div class="btn-group" data-html2canvas-ignore="true" style="display:flex; gap:10px; margin-top: 20px;">
+    <button onclick="calculatePay()" style="flex:2; padding:16px; background:var(--primary); color:white; border:none; border-radius:6px; font-weight:bold; cursor:pointer; font-size: 16px;">CALCULATE FORTNIGHT</button>
+    <button onclick="window.print()" style="flex:1; border: 1px solid #ccc; background: white; border-radius:6px; cursor:pointer; font-weight: bold;">Print / Save PDF</button>
+  </div>
+
+  <div id="results" class="results-box">
+    <div class="payslip-style">
+      <div class="ps-header"><span>PAYMENT BREAKDOWN</span><span id="ps-period"></span></div>
+      <table class="ps-table">
+        <thead><tr><th>Description</th><th>Units</th><th>Rate</th><th style="text-align:right;">Total</th></tr></thead>
+        <tbody id="breakdown-body"></tbody>
+      </table>
+      <div class="ps-total-row"><span>NET TAKE HOME:</span> <span id="r-net"></span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const vicPublicHolidays = {
+  "2026-01-01": "New Year's Day", "2026-01-26": "Australia Day", "2026-03-09": "Labour Day", 
+  "2026-04-03": "Good Friday", "2026-04-04": "Easter Saturday", "2026-04-05": "Easter Sunday", 
+  "2026-04-06": "Easter Monday", "2026-04-25": "ANZAC Day", "2026-06-08": "King's Birthday", 
+  "2026-09-25": "AFL Grand Final Eve", "2026-11-03": "Melbourne Cup", 
+  "2026-12-25": "Christmas Day", "2026-12-26": "Boxing Day", "2026-12-28": "Boxing Day obs",
+  "2027-01-01": "New Year's Day", "2027-01-26": "Australia Day", "2027-03-08": "Labour Day", 
+  "2027-03-26": "Good Friday", "2027-03-27": "Easter Saturday", "2027-03-28": "Easter Sunday", 
+  "2027-03-29": "Easter Monday", "2027-04-25": "ANZAC Day", "2027-06-14": "King's Birthday", 
+  "2027-09-24": "AFL Grand Final Eve", "2027-11-02": "Melbourne Cup", 
+  "2027-12-25": "Christmas Day", "2027-12-26": "Boxing Day", "2027-12-27": "Xmas obs", "2027-12-28": "Boxing obs"
+};
+
+window.onload = () => {
+  generateRosterRows('week1Body', 0); generateRosterRows('week2Body', 7);
+  document.getElementById('startDate').value = "2026-02-08";
+  updateDates();
+};
+
+function generateRosterRows(bodyId, offset) {
+  const body = document.getElementById(bodyId);
+  for(let i=0; i<7; i++) {
+    const idx = i + offset;
+    const row = document.createElement('tr');
+    row.id = `row_${idx}`;
+    row.innerHTML = `
+      <td><div class="day-label"><span id="d${idx}_txt"></span><span id="d${idx}_ph" class="ph-display"></span></div></td>
+      <td><input type="text" class="time-input" id="d${idx}_start" placeholder="OFF" onblur="formatTime(this)"></td>
+      <td style="text-align: center;"><input type="checkbox" id="d${idx}_force" onchange="updateRow(${idx})"></td>
+      <td style="text-align:right; font-weight:bold; color: #007bff; padding-right: 15px;" id="d${idx}_total">0.0</td>
+    `;
+    body.appendChild(row);
+  }
+}
+
+function updateDates() {
+  const startStr = document.getElementById('startDate').value;
+  if(!startStr) return;
+  const start = new Date(startStr);
+  for(let i=0; i<14; i++) {
+    const d = new Date(start); d.setDate(start.getDate() + i);
+    const iso = d.toISOString().split('T')[0];
+    const dayOfWeek = d.getDay();
+    document.getElementById(`d${i}_txt`).innerText = d.toLocaleDateString('en-AU', {weekday:'short', day:'numeric', month:'short'});
+    document.getElementById(`d${i}_ph`).innerText = vicPublicHolidays[iso] || "";
+    const row = document.getElementById(`row_${i}`);
+    if(dayOfWeek === 0 || dayOfWeek === 6) row.classList.add('weekend-row');
+    else row.classList.remove('weekend-row');
+    document.getElementById(`d${i}_start`).style.backgroundColor = vicPublicHolidays[iso] ? "#fff3cd" : "";
+  }
+}
+
+function formatTime(el) {
+  let v = el.value.toUpperCase();
+  const idx = parseInt(el.id.split('_')[0].substring(1));
+  if(v === "SICK" || v === "CARER") return updateRow(idx);
+  if(v === "OFF" || v === "") return updateRow(idx);
+  if(v.length === 4 && !isNaN(v)) el.value = v.substring(0,2) + ":" + v.substring(2,4);
+  autoPopulatePattern(idx, el.value);
+  updateRow(idx);
+}
+
+function autoPopulatePattern(triggerIdx, timeValue) {
+  if (timeValue === "SICK" || timeValue === "CARER" || timeValue === "OFF" || timeValue === "") return;
+  let filledCount = 0;
+  for(let i=0; i<14; i++) if(document.getElementById(`d${i}_start`).value !== "OFF" && document.getElementById(`d${i}_start`).value !== "") filledCount++;
+  if(filledCount > 1) return;
+  for(let i=0; i<14; i++) {
+    const diff = i - triggerIdx;
+    let cyclePos = diff % 8; if(cyclePos < 0) cyclePos += 8;
+    const isWork = (cyclePos < 4);
+    const existingVal = document.getElementById(`d${i}_start`).value.toUpperCase();
+    if(existingVal !== "SICK" && existingVal !== "CARER") {
+        document.getElementById(`d${i}_start`).value = isWork ? timeValue : "OFF";
+    }
+    updateRow(i);
+  }
+}
+
+function updateRow(i) {
+  const start = document.getElementById(`d${i}_start`).value.toUpperCase();
+  const display = document.getElementById(`d${i}_total`);
+  if(start === "SICK" || start === "CARER") { display.innerHTML = '12.0 <span class="tag-leave">LEAVE</span>'; return; }
+  if(!start || start === "OFF") { display.innerText = "0.0"; return; }
+  display.innerHTML = '12.0 <span class="meal-indicator">MEAL</span>';
+}
+
+function clearRoster() {
+  for(let i=0; i<14; i++) {
+    document.getElementById(`d${i}_start`).value = "OFF";
+    document.getElementById(`d${i}_force`).checked = false;
+    updateRow(i);
+  }
+}
+
+function calculatePay() {
+  const rate = parseFloat(document.getElementById('rate').value) || 0;
+  const mealRate = parseFloat(document.getElementById('mealRate').value) || 14.94;
+  const lease = parseFloat(document.getElementById('lease').value) || 0;
+  const superSac = parseFloat(document.getElementById('superSac').value) || 0;
+  const extraSuper = parseFloat(document.getElementById('extraSuper').value) || 0;
+
+  let buckets = { normal: 0, ot: 0, sat: 0, sun: 0, ph: 0, ph_avail: 0, meals: 0, sick: 0, carer: 0 };
+
+  for(let i=0; i<14; i++) {
+    const start = document.getElementById(`d${i}_start`).value.toUpperCase();
+    const dStr = document.getElementById('startDate').value;
+    const d = new Date(dStr); d.setDate(d.getDate() + i);
+    const day = d.getDay();
+    const isPH = !!vicPublicHolidays[d.toISOString().split('T')[0]];
+    const isForce = document.getElementById(`d${i}_force`).checked;
+
+    if(start === "SICK") { buckets.sick += 12; continue; }
+    if(start === "CARER") { buckets.carer += 12; continue; }
+    if(!start || start === "OFF") { if(isPH) buckets.ph_avail += 8; continue; }
+
+    buckets.meals++;
+
+    if(isPH) buckets.ph += (12 * 2.5);
+    else if(day === 0) buckets.sun += (12 * 2.0);
+    else if(day === 6) buckets.sat += (12 * (isForce ? 2.0 : 1.5));
+    else { 
+      // Manual OT check
+      if(isForce) {
+          buckets.ot += (12 * 1.5); // Entire weekday shift is OT
+      } else {
+          buckets.normal += 10; 
+          buckets.ot += (2 * 1.5); 
+      }
+    }
+  }
+
+  const gross = (buckets.normal + buckets.ot + buckets.sat + buckets.sun + buckets.ph + buckets.ph_avail + buckets.sick + buckets.carer) * rate;
+  const taxableGross = Math.max(0, gross - lease - superSac - extraSuper);
+  const annualTaxable = taxableGross * 26;
+  
+  let annTax = 0;
+  if(document.getElementById('taxFree').checked) {
+    if(annualTaxable > 18200) annTax = (Math.min(annualTaxable, 45000) - 18200) * 0.16;
+    if(annualTaxable > 45000) annTax += (Math.min(annualTaxable, 135000) - 45000) * 0.30;
+  } else { annTax = annualTaxable * 0.22; }
+  
+  const tax = annTax / 26;
+  const net = taxableGross + (buckets.meals * mealRate) - tax;
+
+  const tbody = document.getElementById('breakdown-body');
+  tbody.innerHTML = "";
+  const addRow = (desc, units, unitRate, total) => { if(units === 0) return; tbody.innerHTML += `<tr><td>${desc}</td><td>${units.toFixed(2)}</td><td>$${unitRate.toFixed(2)}</td><td style="text-align:right;">$${total.toFixed(2)}</td></tr>`; };
+
+  addRow("Normal", buckets.normal, rate, buckets.normal * rate);
+  addRow("Sick Leave", buckets.sick, rate, buckets.sick * rate);
+  addRow("Carer's Leave", buckets.carer, rate, buckets.carer * rate);
+  addRow("O/T1.5 Vol", buckets.ot / 1.5, rate * 1.5, buckets.ot * rate);
+  addRow("TI+50%Ros", buckets.sat / 1.5, rate * 1.5, buckets.sat * rate);
+  addRow("TI+100%Ros", buckets.sun / 2.0, rate * 2.0, buckets.sun * rate);
+  addRow("Public Holiday", buckets.ph / 2.5, rate * 2.5, buckets.ph * rate);
+  addRow("PH Available", buckets.ph_avail, rate, buckets.ph_avail * rate);
+  addRow("Meal Allowance", buckets.meals, mealRate, buckets.meals * mealRate);
+  
+  if(lease > 0) addRow("Novated Lease", 1, -lease, -lease);
+  if((superSac + extraSuper) > 0) addRow("Super Sal Sacrifice", 1, -(superSac + extraSuper), -(superSac + extraSuper));
+  addRow("PAYG Tax", 1, -tax, -tax);
+
+  document.getElementById('r-net').innerText = "$" + net.toLocaleString(undefined, {minimumFractionDigits: 2});
+  document.getElementById('results').style.display = 'block';
+}
+
+async function handlePayslipUpload() {
+  const file = document.getElementById('payslipInput').files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = async function() {
+    const pdf = await pdfjsLib.getDocument(new Uint8Array(this.result)).promise;
+    let text = "";
+    for(let i=1; i<=pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      text += content.items.map(s => s.str).join(" ");
+    }
+    const rateMatch = text.match(/(?:Normal|Base|Ordinary)\s*[\d.]+\s*([\d.]+\d{2})/i);
+    if(rateMatch) document.getElementById('rate').value = rateMatch[1];
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+const dz = document.getElementById('dropZone');
+dz.ondragover = (e) => { e.preventDefault(); dz.style.background = "#eaffe8"; };
+dz.ondragleave = () => dz.style.background = "#f6fff9";
+dz.ondrop = (e) => { e.preventDefault(); document.getElementById('payslipInput').files = e.dataTransfer.files; handlePayslipUpload(); };
+</script>
+
+</body>
+</html>
